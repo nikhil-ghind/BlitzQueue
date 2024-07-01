@@ -1,0 +1,20 @@
+version: "3.9"
+
+services:
+  blitz_queue:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: blitz_queue:latest
+    container_name: blitz_queue_server
+    ports:
+      - "50051:50051"
+    environment:
+      - BLITZ_ADDR=0.0.0.0:50051
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=:50051"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

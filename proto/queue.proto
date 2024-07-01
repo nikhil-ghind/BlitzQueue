@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package blitzqueue;
+
+// ─────────────────────────────────────────────
+// Message types
+// ─────────────────────────────────────────────
+
+message EnqueueRequest {
+  string queue_name = 1;
+  bytes  payload    = 2;
+}
+
+message EnqueueResponse {
+  bool   success = 1;
+  string error   = 2;
+}
+
+message DequeueRequest {
+  string queue_name    = 1;
+  // Milliseconds to wait for an item before returning (0 = non-blocking)
+  uint32 timeout_ms    = 2;
+}
+
+message DequeueResponse {
+  bool   success = 1;
+  bytes  payload = 2;
+  string error   = 3;
+}
+
+message StatsRequest {
+  string queue_name = 1;
+}
+
+message StatsResponse {
+  string queue_name      = 1;
+  uint64 current_size    = 2;
+  uint64 capacity        = 3;
+  uint64 total_enqueued  = 4;
+  uint64 total_dequeued  = 5;
+  bool   exists          = 6;
+}
+
+message CreateQueueRequest {
+  string queue_name = 1;
+}
+
+message CreateQueueResponse {
+  bool   success = 1;
+  string error   = 2;
+}
+
+// ─────────────────────────────────────────────
+// Service
+// ─────────────────────────────────────────────
+
+service QueueService {
+  // Create a named queue (idempotent).
+  rpc CreateQueue(CreateQueueRequest) returns (CreateQueueResponse);
+
+  // Enqueue a message into the named queue.
+  rpc Enqueue(EnqueueRequest) returns (EnqueueResponse);
+
+  // Dequeue a message from the named queue.
+  rpc Dequeue(DequeueRequest) returns (DequeueResponse);
+
+  // Query queue statistics.
+  rpc Stats(StatsRequest) returns (StatsResponse);
+}
