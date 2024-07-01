@@ -6,34 +6,43 @@ A **lock-free MPMC (multi-producer multi-consumer) queue** implemented in C++17,
 
 ## Architecture
 
-```
- Producers (N threads)          Consumers (N threads)
-       │                               │
-       ▼                               ▼
- ┌─────────────────────────────────────────────┐
- │         MpmcQueue<T, Capacity>              │
- │   ┌──────┬──────┬──────┬──────┬──────┐      │
- │   │Slot 0│Slot 1│Slot 2│ ...  │Slot N│      │
- │   │seq=0 │seq=1 │seq=2 │      │seq=N │      │
- │   └──────┴──────┴──────┴──────┴──────┘      │
- │   head ──►                  ◄── tail        │
- └─────────────────────────────────────────────┘
-              │                │
-              ▼                ▼
-       ┌─────────────────────────┐
-       │    gRPC QueueService    │
-       │  Enqueue / Dequeue /    │
-       │  Stats / CreateQueue    │
-       └─────────────────────────┘
-              │
-              ▼
-       ┌─────────────────────────┐
-       │  AsyncWorkerPool        │
-       │  (Boost.Asio + N tasks) │
-       └─────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph core["Header-only core (include/blitz_queue)"]
+        MPMC["MpmcQueue&#60;T, Capacity&#62;<br/>mpmc_queue.hpp<br/>cache-line padded slots, power-of-two capacity"]
+        SPSC["BoundedSpscQueue&#60;T, Capacity&#62;<br/>bounded_queue.hpp<br/>single producer, single consumer"]
+    end
+
+    subgraph srv["gRPC server (src/server.cpp)"]
+        SVC["QueueServiceImpl"]
+        REG["Named queue registry<br/>map guarded by a shared_mutex<br/>64K slots per queue"]
+        CTR["Per-queue counters<br/>total_enqueued, total_dequeued"]
+    end
+
+    subgraph pool["Async worker pool (src/async_worker_pool.cpp)"]
+        DRAIN["Drainer thread<br/>spins on dequeue, yields when empty"]
+        ASIO["boost::asio::io_context<br/>N worker threads"]
+    end
+
+    CLI["src/client.cpp<br/>gRPC client"]
+    BENCH["src/benchmark.cpp<br/>N producers x N consumers"]
+
+    CLI -->|"CreateQueue / Enqueue / Dequeue / Stats"| SVC
+    SVC --> REG
+    REG --> MPMC
+    SVC --> CTR
+    BENCH --> MPMC
+    MPMC --> DRAIN
+    DRAIN -->|"asio::post per item"| ASIO
 ```
 
----
+<img src="docs/ring-buffer.svg" alt="Eight ring buffer slots with the head index advancing as producers publish items and the tail index chasing it as consumers drain them, wrapping past the end of the array" width="880">
+
+The gRPC layer is deliberately thin: a `shared_mutex`-guarded map is taken only
+to *find* a queue, and every enqueue and dequeue after that runs lock-free
+against the queue's own slot array. The worker pool sits on the other side of
+the same queue — one drainer thread pulls items out and posts them onto an Asio
+`io_context` so a pool of threads can process them concurrently.
 
 ## Lock-Free Algorithm
 
